@@ -12,7 +12,7 @@ if 'env' not in st.session_state:
     st.session_state.device = get_device()
     
     # THE REAL FIX: Read the file with Torch, then build the bot from it
-    checkpoint = torch.load('RedWood_bot_master.pth', map_location=st.session_state.device)
+    checkpoint = torch.load('RedWood_bot_master.pth', map_location=st.session_state.device, weights_only=False)
     st.session_state.bot = DQNAgent.from_checkpoint(checkpoint=checkpoint)
     
     from rlcard.agents.random_agent import RandomAgent
