@@ -2,27 +2,24 @@ import streamlit as st
 import rlcard
 from rlcard.agents import DQNAgent
 from rlcard.utils import get_device
+import torch  # <-- NEW: We need PyTorch to read the file
 
-# --- 1. PAGE SETUP ---
 st.set_page_config(page_title="RedWood Bot vs Human", page_icon="🃏", layout="centered")
-st.title("🃏 Play RedWood Bot (3M IQ)")
+st.title("🃏 Play RedWood Bot")
 
-# --- 2. INITIALIZE GAME STATE ---
-# We use st.session_state so the app remembers the game between button clicks
 if 'env' not in st.session_state:
     st.session_state.env = rlcard.make('no-limit-holdem', config={'seed': 42})
     st.session_state.device = get_device()
     
-    # Load the Bot
-    st.session_state.bot = DQNAgent(
-        num_actions=st.session_state.env.num_actions,
-        state_shape=st.session_state.env.state_shape[0],
-        mlp_layers=[128, 128],
-        device=st.session_state.device
-    )
-    st.session_state.bot.load_checkpoint(path='.', filename='RedWood_bot_master.pth')    
-    # We don't need a HumanAgent here, Streamlit IS the human agent.
-    # We put a dummy agent in Seat 0 just to satisfy the env, but we will manually pass human actions.
+    # THE REAL FIX: Read the file with Torch, then build the bot from it
+    checkpoint = torch.load('RedWood_bot_master.pth', map_location=st.session_state.device)
+    st.session_state.bot = DQNAgent.from_checkpoint(checkpoint=checkpoint)
+    
+    from rlcard.agents.random_agent import RandomAgent
+    st.session_state.env.set_agents([RandomAgent(num_actions=st.session_state.env.num_actions), st.session_state.bot])
+    
+    st.session_state.game_over = True
+    st.session_state.history = []
     from rlcard.agents.random_agent import RandomAgent
     st.session_state.env.set_agents([RandomAgent(num_actions=st.session_state.env.num_actions), st.session_state.bot])
     
