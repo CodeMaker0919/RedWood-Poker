@@ -4,102 +4,87 @@ from rlcard.agents import DQNAgent
 from rlcard.utils import get_device
 import torch
 
-# 1. PAGE CONFIG
-st.set_page_config(page_title="RedWood Bot", page_icon="🃏", layout="centered")
-st.title("🃏 Play RedWood Bot")
+# --- CUSTOM THEME & CSS ---
+st.set_page_config(page_title="RedWood Poker", page_icon="🃏", layout="centered")
 
-# 2. INITIALIZE SESSION STATE
+st.markdown("""
+    <style>
+    .stButton>button { width: 100%; border-radius: 10px; height: 3em; font-weight: bold; }
+    .card-box { background-color: #1e1e1e; padding: 20px; border-radius: 15px; text-align: center; border: 2px solid #333; }
+    .pot-box { background-color: #0e1117; padding: 10px; border-radius: 10px; text-align: center; color: #ffca28; font-size: 1.2em; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("⚔️ RedWood Poker Arena")
+
+# --- INITIALIZATION ---
 if 'env' not in st.session_state:
     st.session_state.env = rlcard.make('no-limit-holdem', config={'seed': 42})
     st.session_state.device = get_device()
-    
-    # LOAD BRAIN: Use weights_only=False to bypass the PyTorch security block
     checkpoint = torch.load('RedWood_bot_master.pth', map_location=st.session_state.device, weights_only=False)
     st.session_state.bot = DQNAgent.from_checkpoint(checkpoint=checkpoint)
-    
-    # We use a dummy for seat 0, Streamlit inputs will drive seat 0
     from rlcard.agents.random_agent import RandomAgent
     st.session_state.env.set_agents([RandomAgent(num_actions=st.session_state.env.num_actions), st.session_state.bot])
-    
     st.session_state.game_over = True
     st.session_state.history = []
 
-# 3. GAME ENGINE
+# --- CORE LOGIC ---
 def start_new_hand():
     state, player_id = st.session_state.env.reset()
     st.session_state.game_over = False
-    st.session_state.history = ["New hand dealt."]
+    st.session_state.history = ["📢 New hand dealt."]
     process_turn(state, player_id)
 
 def process_turn(state, player_id):
     while player_id == 1 and not st.session_state.env.is_over():
         action = st.session_state.bot.step(state)
-        
-        # Safe action naming
-        action_name = f"Action {action}"
-        if 'raw_legal_actions' in state:
-            rla = state['raw_legal_actions']
-            if isinstance(rla, dict):
-                action_name = rla.get(action, action_name)
-            elif isinstance(rla, list) and action < len(rla):
-                action_name = rla[action]
-                
+        rla = state.get('raw_legal_actions', [])
+        action_name = rla[action] if isinstance(rla, list) and action < len(rla) else f"Action {action}"
         st.session_state.history.insert(0, f"🤖 RedWood chose: {action_name}")
         state, player_id = st.session_state.env.step(action)
-    
-    st.session_state.current_state = state
-    st.session_state.player_id = player_id
-    
+    st.session_state.current_state, st.session_state.player_id = state, player_id
     if st.session_state.env.is_over():
         st.session_state.game_over = True
-        payoffs = st.session_state.env.get_payoffs()
-        st.session_state.history.insert(0, f"🏁 GAME OVER! Your Payoff: {payoffs[0]} | RedWood: {payoffs[1]}")
+        p = st.session_state.env.get_payoffs()
+        st.session_state.history.insert(0, f"🏁 Result -> You: {p[0]} | Bot: {p[1]}")
 
-def take_human_action(action_id, action_name):
-    st.session_state.history.insert(0, f"👤 You chose: {action_name}")
-    state, player_id = st.session_state.env.step(action_id)
-    process_turn(state, player_id)
-
-# 4. USER INTERFACE
+# --- UI LAYOUT ---
 if st.session_state.game_over:
-    if st.button("Deal New Hand 🃏", use_container_width=True, type="primary"):
+    st.markdown("<div class='pot-box'>Table Closed</div>", unsafe_allow_html=True)
+    if st.button("Deal New Hand 🃏", type="primary"):
         start_new_hand()
         st.rerun()
 else:
     raw_obs = st.session_state.current_state['raw_obs']
     
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Your Hand")
-        st.info(" ".join(raw_obs['hand']))
-    with c2:
-        st.subheader("Community")
-        if raw_obs['public_cards']:
-            st.success(" ".join(raw_obs['public_cards']))
-        else:
-            st.warning("Pre-Flop")
-            
-    st.write(f"**Pot:** {raw_obs['pot']} chips")
-    st.markdown("### Your Move")
+    # Community Cards
+    st.markdown("### 🏛️ Community Board")
+    board = " ".join(raw_obs['public_cards']) if raw_obs['public_cards'] else "🎴 🎴 🎴 🎴 🎴"
+    st.markdown(f"<div class='card-box' style='font-size: 2em; color: #4caf50;'>{board}</div>", unsafe_allow_html=True)
     
+    st.markdown(f"<div class='pot-box'>💰 Pot: {raw_obs['pot']} Chips</div>", unsafe_allow_html=True)
+
+    # Player Hand
+    st.markdown("### 🤲 Your Hand")
+    hand = " ".join(raw_obs['hand'])
+    st.markdown(f"<div class='card-box' style='font-size: 2.5em; border-color: #2196f3;'>{hand}</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    
+    # Action Buttons
     legal_actions = st.session_state.current_state['legal_actions']
     raw_legal_actions = st.session_state.current_state['raw_legal_actions']
-    
     cols = st.columns(len(legal_actions))
     for i, action_id in enumerate(legal_actions):
-        if isinstance(raw_legal_actions, dict):
-            btn_label = raw_legal_actions.get(action_id, f"Action {action_id}")
-        elif isinstance(raw_legal_actions, list) and i < len(raw_legal_actions):
-            btn_label = raw_legal_actions[i]
-        else:
-            btn_label = f"Action {action_id}"
-            
+        btn_label = raw_legal_actions[action_id] if isinstance(raw_legal_actions, dict) else raw_legal_actions[i]
         with cols[i]:
-            if st.button(str(btn_label).capitalize(), key=f"btn_{action_id}"):
-                take_human_action(action_id, btn_label)
+            if st.button(str(btn_label).upper(), key=f"btn_{action_id}"):
+                st.session_state.history.insert(0, f"👤 You chose: {btn_label}")
+                state, p_id = st.session_state.env.step(action_id)
+                process_turn(state, p_id)
                 st.rerun()
 
-st.markdown("---")
-st.markdown("### Match History")
-for log in st.session_state.history:
-    st.text(log)
+# History Log
+with st.expander("📝 Hand Log", expanded=True):
+    for log in st.session_state.history[:5]:
+        st.write(log)
